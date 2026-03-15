@@ -106,3 +106,42 @@ curl -X POST "http://127.0.0.1:8080/ack" \
 - `LEASE_SECONDS`
 
 デプロイ後は、X Console の webhook URL をこの公開 URL の `/webhook` に向けます。
+
+## Account Activity subscription 作成
+
+`イベントサブスクリプション` の UI ではなく、API で subscription を作る前提です。
+
+追加で必要な環境変数:
+
+- `X_BEARER_TOKEN`
+- `X_API_KEY`
+- `X_API_SECRET`
+- `X_ACCESS_TOKEN`
+- `X_ACCESS_TOKEN_SECRET`
+
+スクリプト:
+
+- `program/20260315_x-reply-webhook-kit/webhook-server/scripts/account_activity.py:1`
+
+### 1. webhook 一覧を見る
+
+```bash
+cd program/20260315_x-reply-webhook-kit/webhook-server
+python scripts/account_activity.py list-webhooks
+```
+
+### 2. 特定 URL の webhook を subscription する
+
+```bash
+cd program/20260315_x-reply-webhook-kit/webhook-server
+python scripts/account_activity.py ensure-subscription \
+  --url https://your-webhook-server.example.com/webhook
+```
+
+### 3. webhook_id が分かっている場合
+
+```bash
+cd program/20260315_x-reply-webhook-kit/webhook-server
+python scripts/account_activity.py subscribe --webhook-id YOUR_WEBHOOK_ID
+python scripts/account_activity.py list-subscriptions --webhook-id YOUR_WEBHOOK_ID
+```

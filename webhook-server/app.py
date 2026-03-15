@@ -84,7 +84,37 @@ def verify_x_signature(raw_body: bytes) -> bool:
     return hmac.compare_digest(expected_header, expected_value)
 
 
+def summarize_follow_user(user: dict) -> tuple[str, str]:
+    """follow_events の user オブジェクトから (user_id, username) を取り出す。
+
+    legacy AAA 形式 (id_str / screen_name) と v2 形式 (id / username) の両方を許容する。
+    """
+    user = user or {}
+    user_id = str(user.get("id_str") or user.get("id") or "")
+    username = str(user.get("screen_name") or user.get("username") or "")
+    return user_id, username
+
+
 def summarize_payload(payload: dict) -> dict:
+    follow_events = payload.get("follow_events") or []
+    if follow_events:
+        event = follow_events[0]
+        follow_type = str(event.get("type") or "")
+        source_id, source_username = summarize_follow_user(event.get("source"))
+        target_id, target_username = summarize_follow_user(event.get("target"))
+        return {
+            "event_type": "follow_events",
+            "follow_type": follow_type,
+            "tweet_id": "",
+            "conversation_id": "",
+            "user_id": source_id,
+            "username": source_username,
+            "target_user_id": target_id,
+            "target_username": target_username,
+            "text": "",
+            "source_created_at": str(event.get("created_timestamp") or event.get("created_at") or ""),
+        }
+
     tweet_events = payload.get("tweet_create_events") or []
     if tweet_events:
         event = tweet_events[0]
@@ -132,6 +162,9 @@ def event_dedupe_key(summary: dict) -> str:
         summary.get("tweet_id", ""),
         summary.get("conversation_id", ""),
         summary.get("user_id", ""),
+        # follow_events: フォロー→即アンフォローの連続を別イベントとして扱う
+        summary.get("follow_type", ""),
+        summary.get("source_created_at", "") if summary.get("event_type") == "follow_events" else "",
     ]
     return "|".join(parts)
 
@@ -273,6 +306,28 @@ def webhook():
         return jsonify({"ok": False, "error": "invalid_json", "detail": str(error)}), 400
 
     summary = summarize_payload(payload)
+    is_follow_event = summary.get("event_type") == "follow_events"
+    if is_follow_event:
+        # follow_events に tweet_id はない。user_id が取れていれば有効イベント
+        if not summary.get("user_id"):
+            return jsonify(
+                {
+                    "ok": True,
+                    "ignored": True,
+                    "reason": "missing_user_id",
+                    "event_type": "follow_events",
+                }
+            )
+    elif not summary.get("tweet_id"):
+        return jsonify(
+            {
+                "ok": True,
+                "ignored": True,
+                "reason": "missing_tweet_id",
+                "event_type": summary.get("event_type", "unknown"),
+            }
+        )
+
     event = enqueue_event(summary, payload)
 
     return jsonify(
