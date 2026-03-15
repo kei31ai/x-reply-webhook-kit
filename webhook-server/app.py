@@ -238,10 +238,6 @@ def ack_events(event_ids: list[str], status: str) -> dict:
 
 @app.get("/")
 def root():
-    crc_token = request.args.get("crc_token", "").strip()
-    if crc_token:
-        return jsonify({"response_token": build_crc_response_token(crc_token)})
-
     with QUEUE_LOCK:
         pending_count = sum(1 for event_id in EVENT_ORDER if EVENTS.get(event_id))
 
@@ -254,6 +250,14 @@ def root():
             "now": now_iso(),
         }
     )
+
+
+@app.get("/webhook")
+def webhook_crc():
+    crc_token = request.args.get("crc_token", "").strip()
+    if not crc_token:
+        return jsonify({"ok": False, "error": "crc_token_required"}), 400
+    return jsonify({"response_token": build_crc_response_token(crc_token)})
 
 
 @app.post("/webhook")

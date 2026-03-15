@@ -15,8 +15,11 @@ X webhook を受けて、一時的にイベントを保持し、ローカル wor
 
 ### `GET /`
 
-- `crc_token` があれば `response_token` を返します
-- それ以外は healthcheck を返します
+- healthcheck を返します
+
+### `GET /webhook`
+
+- `crc_token` を受けて `response_token` を返します
 
 ### `POST /webhook`
 
@@ -75,7 +78,7 @@ python app.py
 ### CRC
 
 ```bash
-curl "http://127.0.0.1:8080/?crc_token=test123"
+curl "http://127.0.0.1:8080/webhook?crc_token=test123"
 ```
 
 ### pull
@@ -102,4 +105,4 @@ curl -X POST "http://127.0.0.1:8080/ack" \
 - `WORKER_TOKEN`
 - `LEASE_SECONDS`
 
-デプロイ後は、X Console の webhook URL をこの公開 URL に向けます。
+デプロイ後は、X Console の webhook URL をこの公開 URL の `/webhook` に向けます。
