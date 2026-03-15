@@ -273,6 +273,16 @@ def webhook():
         return jsonify({"ok": False, "error": "invalid_json", "detail": str(error)}), 400
 
     summary = summarize_payload(payload)
+    if not summary.get("tweet_id"):
+        return jsonify(
+            {
+                "ok": True,
+                "ignored": True,
+                "reason": "missing_tweet_id",
+                "event_type": summary.get("event_type", "unknown"),
+            }
+        )
+
     event = enqueue_event(summary, payload)
 
     return jsonify(
