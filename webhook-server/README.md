@@ -1,36 +1,63 @@
-# X Webhook Queue for Railway
+# webhook-server
 
-X webhook を `Railway` で受けて、ローカルの返信 worker が `pull/ack` できるようにする最小構成です。
+X webhook を受けて、一時的にイベントを保持し、ローカル worker が `pull / ack` できるようにする Flask サーバーです。
 
-## 構成
+## できること
 
-- `GET /`
-  - `crc_token` があれば `response_token` を返す
-  - それ以外は healthcheck
-- `POST /webhook`
-  - `x-twitter-webhooks-signature` を検証
-  - event を in-memory queue に積む
-- `GET /pull`
-  - Bearer token 認証
-  - pending event を leased にして返す
-- `POST /ack`
-  - Bearer token 認証
-  - 処理済み event を削除、または状態更新
-- `GET /debug/events`
-  - Bearer token 認証
-  - queue の中身を確認
+- X webhook の CRC 応答
+- `x-twitter-webhooks-signature` の検証
+- イベントの受信と in-memory queue への格納
+- ローカル worker 向けの `pull` API
+- ローカル worker 向けの `ack` API
+- queue 状態の確認用 `debug` API
 
-## 前提
+## エンドポイント
 
-- `Railway` は **single replica**
-- `Railway Serverless` は **使わない**
-- queue は process memory だけなので、deploy / restart / crash で消えます
+### `GET /`
+
+- `crc_token` があれば `response_token` を返します
+- それ以外は healthcheck を返します
+
+### `POST /webhook`
+
+- X からの webhook を受けます
+- 署名検証に通った payload だけ queue に積みます
+
+### `GET /pull`
+
+- Bearer token 認証が必要です
+- pending なイベントを leased 状態で返します
+- ローカル worker がここから新着を取得します
+
+### `POST /ack`
+
+- Bearer token 認証が必要です
+- 処理済みイベントを `done` にするか、再試行用に戻します
+
+### `GET /debug/events`
+
+- Bearer token 認証が必要です
+- queue に入っているイベント一覧を返します
+
+## queue の仕様
+
+- queue は **process memory** に保存されます
+- そのため、deploy / restart / crash が起きると内容は消えます
+- まずは最小構成として割り切る前提です
+
+## 動作前提
+
+- `Railway` を使う場合は **single replica**
+- `Railway Serverless` は使わない
+- `WORKER_TOKEN` を知っているローカル worker だけが `pull / ack` できます
 
 ## 環境変数
 
-- `X_CONSUMER_SECRET`
-- `WORKER_TOKEN`
-- `LEASE_SECONDS`
+| 変数名 | 用途 |
+| --- | --- |
+| `X_CONSUMER_SECRET` | X webhook の CRC と署名検証に使う secret |
+| `WORKER_TOKEN` | `pull / ack` API を叩く worker 用 Bearer token |
+| `LEASE_SECONDS` | `pull` 後に lease する秒数 |
 
 ## ローカル実行
 
@@ -43,20 +70,22 @@ cp .env.example .env
 python app.py
 ```
 
-## CRC テスト
+## 確認コマンド
+
+### CRC
 
 ```bash
 curl "http://127.0.0.1:8080/?crc_token=test123"
 ```
 
-## pull テスト
+### pull
 
 ```bash
 curl -H "Authorization: Bearer YOUR_WORKER_TOKEN" \
   "http://127.0.0.1:8080/pull?limit=10"
 ```
 
-## ack テスト
+### ack
 
 ```bash
 curl -X POST "http://127.0.0.1:8080/ack" \
@@ -65,11 +94,12 @@ curl -X POST "http://127.0.0.1:8080/ack" \
   -d '{"event_ids":["EVENT_ID"],"status":"done"}'
 ```
 
-## GitHub 用メモ
+## デプロイ
 
-このディレクトリ単体で GitHub に上げられるようにしてあります。
-push 前に以下だけ入れてください。
+このディレクトリを `Railway` にデプロイし、次の環境変数を設定してください。
 
-- `.env` を作る
-- Railway 側に同じ環境変数を設定する
-- X Console の webhook URL を Railway の公開 URL に向ける
+- `X_CONSUMER_SECRET`
+- `WORKER_TOKEN`
+- `LEASE_SECONDS`
+
+デプロイ後は、X Console の webhook URL をこの公開 URL に向けます。
