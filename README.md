@@ -1,75 +1,31 @@
-# X Webhook Queue for Railway
+# x-reply-webhook-kit
 
-X webhook を `Railway` で受けて、ローカルの返信 worker が `pull/ack` できるようにする最小構成です。
+X の返信検知を `webhook server` と `local worker` に分けて管理する作業フォルダです。
 
 ## 構成
 
-- `GET /`
-  - `crc_token` があれば `response_token` を返す
-  - それ以外は healthcheck
-- `POST /webhook`
-  - `x-twitter-webhooks-signature` を検証
-  - event を in-memory queue に積む
-- `GET /pull`
-  - Bearer token 認証
-  - pending event を leased にして返す
-- `POST /ack`
-  - Bearer token 認証
-  - 処理済み event を削除、または状態更新
-- `GET /debug/events`
-  - Bearer token 認証
-  - queue の中身を確認
+- `webhook-server/`
+  - 公開側
+  - X webhook を受ける
+  - `pull / ack` API を出す
+- `local-worker/`
+  - 手元 PC 側
+  - `webhook-server` から event を取りに行く
+  - 通知・返信処理を行う
 
-## 前提
+## 公開方針
 
-- `Railway` は **single replica**
-- `Railway Serverless` は **使わない**
-- queue は process memory だけなので、deploy / restart / crash で消えます
+公開するなら、基本は **両方を同じリポジトリに入れた方が使う人には親切** です。
 
-## 環境変数
+ただし以下は除外します。
 
-- `X_CONSUMER_SECRET`
-- `WORKER_TOKEN`
-- `LEASE_SECONDS`
+- `.env`
+- 個人用トークン
+- macOS 専用の個別設定
+- けいすけ固有の返信ロジック
 
-## ローカル実行
+つまり、
+- `webhook-server/` はそのまま公開
+- `local-worker/` は再利用できるテンプレートだけ公開
 
-```bash
-cd program/20260315_x_webhook
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python app.py
-```
-
-## CRC テスト
-
-```bash
-curl "http://127.0.0.1:8080/?crc_token=test123"
-```
-
-## pull テスト
-
-```bash
-curl -H "Authorization: Bearer YOUR_WORKER_TOKEN" \
-  "http://127.0.0.1:8080/pull?limit=10"
-```
-
-## ack テスト
-
-```bash
-curl -X POST "http://127.0.0.1:8080/ack" \
-  -H "Authorization: Bearer YOUR_WORKER_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"event_ids":["EVENT_ID"],"status":"done"}'
-```
-
-## GitHub 用メモ
-
-このディレクトリ単体で GitHub に上げられるようにしてあります。
-push 前に以下だけ入れてください。
-
-- `.env` を作る
-- Railway 側に同じ環境変数を設定する
-- X Console の webhook URL を Railway の公開 URL に向ける
+という形がよいです。
