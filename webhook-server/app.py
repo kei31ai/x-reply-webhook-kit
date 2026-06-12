@@ -119,13 +119,19 @@ def summarize_payload(payload: dict) -> dict:
     if tweet_events:
         event = tweet_events[0]
         user = event.get("user") or {}
+        text = event.get("text") or ""
+        # 素のリツイート（リポスト）は返信対象外。legacy AAA は retweeted_status を持ち、
+        # 本文は "RT @..." で始まる。引用RT(quoted_status)は対象なので除外しない。
+        # これを queue に入れて返信すると自己リプ事故になる（2026-06-13）。
+        is_retweet = bool(event.get("retweeted_status")) or text.startswith("RT @")
         return {
             "event_type": "tweet_create_events",
+            "is_retweet": is_retweet,
             "tweet_id": event.get("id_str") or event.get("id") or "",
             "conversation_id": event.get("conversation_id_str") or "",
             "user_id": user.get("id_str") or "",
             "username": user.get("screen_name") or "",
-            "text": event.get("text") or "",
+            "text": text,
             "source_created_at": event.get("created_at") or "",
         }
 
@@ -325,6 +331,17 @@ def webhook():
                 "ignored": True,
                 "reason": "missing_tweet_id",
                 "event_type": summary.get("event_type", "unknown"),
+            }
+        )
+    elif summary.get("is_retweet"):
+        # 素のリツイート（リポスト）は queue に入れない。返信すると自己リプ事故になる（2026-06-13）
+        return jsonify(
+            {
+                "ok": True,
+                "ignored": True,
+                "reason": "retweet_not_target",
+                "event_type": summary.get("event_type", "unknown"),
+                "tweet_id": summary.get("tweet_id", ""),
             }
         )
 
