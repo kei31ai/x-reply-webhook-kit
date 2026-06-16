@@ -95,12 +95,27 @@ def summarize_follow_user(user: dict) -> tuple[str, str]:
     return user_id, username
 
 
+def extract_followers_count(user: dict):
+    """user オブジェクトからフォロワー数を取り出す（★2026-06-14 案A: フォロー判断用）。
+
+    legacy AAA(user.followers_count) と v2(user.public_metrics.followers_count) の両方を許容する。
+    取得できなければ None。worker 側はこの値＋アカウント作成日でスパム/新規アカウントを弾く。
+    """
+    user = user or {}
+    direct = user.get("followers_count")
+    if direct is not None:
+        return direct
+    public_metrics = user.get("public_metrics") or {}
+    return public_metrics.get("followers_count")
+
+
 def summarize_payload(payload: dict) -> dict:
     follow_events = payload.get("follow_events") or []
     if follow_events:
         event = follow_events[0]
         follow_type = str(event.get("type") or "")
-        source_id, source_username = summarize_follow_user(event.get("source"))
+        source = event.get("source") or {}
+        source_id, source_username = summarize_follow_user(source)
         target_id, target_username = summarize_follow_user(event.get("target"))
         return {
             "event_type": "follow_events",
@@ -113,6 +128,9 @@ def summarize_payload(payload: dict) -> dict:
             "target_username": target_username,
             "text": "",
             "source_created_at": str(event.get("created_timestamp") or event.get("created_at") or ""),
+            # ★2026-06-14 案A: フォロー判断用に source(相手)のフォロワー数/アカウント作成日を抽出（API消費ゼロ）
+            "user_followers_count": extract_followers_count(source),
+            "user_account_created_at": source.get("created_at") or "",
         }
 
     tweet_events = payload.get("tweet_create_events") or []
@@ -133,6 +151,10 @@ def summarize_payload(payload: dict) -> dict:
             "username": user.get("screen_name") or "",
             "text": text,
             "source_created_at": event.get("created_at") or "",
+            # ★2026-06-14 案A: フォロー判断用に投稿者のフォロワー数/アカウント作成日を抽出（API消費ゼロ）
+            # source_created_at=ツイート時刻 と user_account_created_at=アカウント作成日 は別物
+            "user_followers_count": extract_followers_count(user),
+            "user_account_created_at": user.get("created_at") or "",
         }
 
     data = payload.get("data") or {}
@@ -401,22 +423,27 @@ def debug_events():
     if not is_authorized_worker():
         return jsonify({"ok": False, "error": "unauthorized"}), 401
 
+    # ★2026-06-14 ?raw=1 で raw_payload も返す（案A: user オブジェクトの実フィールド構造=
+    # followers_count / created_at がどこに入るかを確認するため。通常は summary のみ）
+    include_raw = request.args.get("raw", "").strip().lower() in {"1", "true", "yes"}
+
     with QUEUE_LOCK:
         items = []
         for event_id in list(EVENT_ORDER):
             event = EVENTS.get(event_id)
             if not event:
                 continue
-            items.append(
-                {
-                    "event_id": event["event_id"],
-                    "status": event["status"],
-                    "received_at": event["received_at"],
-                    "leased_until": event["leased_until"],
-                    "duplicate_count": event["duplicate_count"],
-                    **event["summary"],
-                }
-            )
+            item = {
+                "event_id": event["event_id"],
+                "status": event["status"],
+                "received_at": event["received_at"],
+                "leased_until": event["leased_until"],
+                "duplicate_count": event["duplicate_count"],
+                **event["summary"],
+            }
+            if include_raw:
+                item["raw_payload"] = event["raw_payload"]
+            items.append(item)
 
     return jsonify({"ok": True, "count": len(items), "items": items})
 
